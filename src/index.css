@@ -1,0 +1,73 @@
+:root {
+  --bg: #f6f6f4;
+  --surface: #ffffff;
+  --canvas-bg: #ebebe8;
+  --text: #1d1d1b;
+  --text-muted: #6a6a64;
+  --border: #dcdcd6;
+  --accent: #2557d6;
+  --accent-hover: #1d47b3;
+  --accent-text: #ffffff;
+  --error: #b42318;
+
+  --sans: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+
+  color-scheme: light dark;
+  font: 15px/1.5 var(--sans);
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161615;
+    --surface: #1e1e1c;
+    --canvas-bg: #111110;
+    --text: #ececea;
+    --text-muted: #9a9a93;
+    --border: #33332f;
+    --accent: #6b92f5;
+    --accent-hover: #8aa9f7;
+    --accent-text: #0d1220;
+    --error: #f97066;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+}
+
+h1,
+h2,
+p,
+dl,
+dd {
+  margin: 0;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
