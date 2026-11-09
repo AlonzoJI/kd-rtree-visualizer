@@ -320,3 +320,67 @@
 .kd-legend-detail {
   color: var(--text-muted);
 }
+
+.rtree-stats {
+  width: 100%;
+  margin-bottom: 6px;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.rtree-stats th,
+.rtree-stats td {
+  padding: 4px 4px;
+  text-align: right;
+  font-weight: 400;
+  border-bottom: 1px solid var(--border);
+}
+
+.rtree-stats th[scope='row'] {
+  text-align: left;
+  color: var(--text-muted);
+}
+
+.rtree-stats td {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.rtree-stats thead th {
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.rtree-stats .is-selected {
+  color: var(--text);
+  font-weight: 600;
+  background: var(--bg);
+}
+
+.rtree-legend {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.875rem;
+}
+
+.rtree-legend label {
+  display: grid;
+  grid-template-columns: auto 28px auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+  cursor: pointer;
+}
+
+.rtree-legend input {
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.rtree-swatch {
+  display: block;
+}

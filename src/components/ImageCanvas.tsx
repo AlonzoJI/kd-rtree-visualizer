@@ -10,7 +10,9 @@ import {
 import type { LoadedImage } from '../image/loadImage'
 import { nearestPointIndex } from '../points/editPoints'
 import { drawKdSplits } from '../render/kdTreeStyle'
+import { drawRTreeBoxes } from '../render/rtreeStyle'
 import type { KdSplitSegment } from '../trees/kdtree'
+import type { RTreeBox } from '../trees/rtree'
 
 /** Marker and hit sizes are in CSS pixels so they look the same at any zoom. */
 const MARKER_RADIUS = 5
@@ -25,6 +27,8 @@ interface ImageCanvasProps {
   points: readonly Point[]
   /** k-d tree split lines in image pixels, deepest first. Empty when the tree is hidden. */
   kdSegments: readonly KdSplitSegment[]
+  /** R-tree boxes in image pixels, highest level first. Empty when the tree is hidden. */
+  rtreeBoxes: readonly RTreeBox[]
   /** Describes the overlay for screen readers, e.g. "k-d tree with 8 leaves". */
   overlayLabel?: string
   /** Called with the pointer position in image pixels, or null when it leaves the image. */
@@ -41,6 +45,7 @@ interface SceneOptions {
   scale: number
   points: readonly Point[]
   kdSegments: readonly KdSplitSegment[]
+  rtreeBoxes: readonly RTreeBox[]
   hoveredIndex: number
 }
 
@@ -50,7 +55,7 @@ interface SceneOptions {
  */
 function drawScene(
   ctx: CanvasRenderingContext2D,
-  { image, backingSize, scale, points, kdSegments, hoveredIndex }: SceneOptions,
+  { image, backingSize, scale, points, kdSegments, rtreeBoxes, hoveredIndex }: SceneOptions,
 ) {
   ctx.setTransform(1, 0, 0, 1, 0, 0)
   ctx.clearRect(0, 0, backingSize.width, backingSize.height)
@@ -67,6 +72,7 @@ function drawScene(
   // image is shown small, so they do not swamp the dots they mark.
   const cssToImage = Math.min(1, Math.max(0.5, scale)) / scale
   drawKdSplits(ctx, kdSegments, cssToImage)
+  drawRTreeBoxes(ctx, rtreeBoxes, cssToImage)
 
   if (points.length === 0) return
   const markers = new Path2D()
@@ -95,6 +101,7 @@ export function ImageCanvas({
   image,
   points,
   kdSegments,
+  rtreeBoxes,
   overlayLabel,
   onPointerMove,
   onScaleChange,
@@ -132,8 +139,8 @@ export function ImageCanvas({
     if (canvas.width !== layout.backingSize.width) canvas.width = layout.backingSize.width
     if (canvas.height !== layout.backingSize.height) canvas.height = layout.backingSize.height
     const ctx = canvas.getContext('2d')
-    if (ctx) drawScene(ctx, { image, backingSize: layout.backingSize, scale: layout.scale, points, kdSegments, hoveredIndex })
-  }, [image, layout, points, kdSegments, hoveredIndex])
+    if (ctx) drawScene(ctx, { image, backingSize: layout.backingSize, scale: layout.scale, points, kdSegments, rtreeBoxes, hoveredIndex })
+  }, [image, layout, points, kdSegments, rtreeBoxes, hoveredIndex])
 
   function toImagePoint(event: MouseEvent<HTMLCanvasElement>): Point | null {
     if (!image) return null

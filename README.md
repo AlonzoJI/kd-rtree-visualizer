@@ -9,7 +9,7 @@ You upload an image (a map, a photo, a scan) to use as the backdrop, place point
 
 ## Status
 
-The app loads a PNG or JPG, finds the black dots on it, lets you fix the result by hand, and draws a k-d tree over the points. The R-tree is not built yet.
+The app loads a PNG or JPG, finds the black dots on it, lets you fix the result by hand, and draws either a k-d tree or an R-tree over the points.
 
 ## Point detection
 
@@ -37,6 +37,17 @@ Pick **k-d tree** under View to draw the tree over the image. [`src/trees/kdtree
 - The root region is the whole image, and each split line is drawn only across its own node's region.
 
 Lines are colored and sized by depth: the top level is the darkest and thickest blue, and deeper levels are lighter and thinner. Deeper lines are drawn first so the top-level splits stay visible. The blue ramp has five steps (checked for even lightness gaps and contrast on white); levels past the fifth reuse the lightest blue and differ only by width. The sidebar shows the tree depth, leaf count, points per leaf, and a legend of each level's axis and split count. Everything redraws when points or settings change.
+
+## R-tree view
+
+Pick **R-tree** under View. [`src/trees/rtree.ts`](src/trees/rtree.ts) (no UI code) builds the tree two ways, both with at most 5 entries per node and at least 2 (40%) in every node but the root:
+
+- **STR bulk load** (Sort-Tile-Recursive): sorts by x into vertical slices, sorts each slice by y, and packs nodes full. A short last node is evened out with its neighbor so no node falls below the minimum.
+- **Quadratic insertion**: inserts points one at a time and splits overfull nodes with Guttman's quadratic split. Points have no area, so ties fall back to perimeter.
+
+Leaf boxes are thin solid rectangles; higher levels are thicker dashed ones. Each level has its own violet, lightest for leaves and darker going up, keyed to the level number so colors stay put when you switch methods. Boxes are padded so they clear the point markers, with each level a little further out than the one below. Checkboxes in the legend show or hide each level.
+
+The sidebar builds both trees over the same points and compares them: height, leaf count, average and lowest node fill, total leaf area, and total overlap (the summed shared area of every pair of sibling boxes). STR packs nodes nearly full, so it needs fewer, bigger leaves; insertion leaves nodes about two thirds full but usually draws tighter boxes.
 
 ## Coordinates
 
@@ -75,7 +86,9 @@ src/
   App.tsx                    page layout and image loading state
   components/
     ImageCanvas.tsx          sizes the canvas, draws the image and point markers
-    KdTreePanel.tsx          view switch, k-d settings, summary and legend
+    KdTreePanel.tsx          k-d settings, summary and legend
+    RTreePanel.tsx           R-tree method, comparison table and level toggles
+    ViewModeSwitch.tsx       points, k-d tree or R-tree
     Sidebar.tsx              upload button, point count and image details
   detection/detectPoints.ts  dot detection (threshold, labeling, shape test, k-means split)
   geometry/imageSpace.ts     coordinate conversions (fit scale, canvas layout, pointer mapping)
@@ -83,6 +96,8 @@ src/
   image/readPixels.ts        reads a decoded image's RGBA pixels
   points/editPoints.ts       click to add or remove a point
   render/kdTreeStyle.ts      depth colors and widths, draws split lines
+  render/rtreeStyle.ts       level colors, widths, dashes and padding, draws boxes
   settings/kdSettings.ts     k-d defaults and leaf capacity validation
   trees/kdtree.ts            k-d tree build, split segments and summary
+  trees/rtree.ts             R-tree STR and quadratic builds, boxes and analysis
 ```

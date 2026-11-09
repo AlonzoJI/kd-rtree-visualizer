@@ -402,3 +402,19 @@ export function analyzeRTree(root: RNode, options: RTreeOptions = {}): RTreeAnal
     averageFill: counted.reduce((sum, fill) => sum + fill.fill, 0) / counted.length,
   }
 }
+
+export interface RTreeBox {
+  level: number
+  rect: Rect
+}
+
+/**
+ * Every node's rectangle, highest level first, so that drawing in order puts
+ * the leaves on top. An empty tree has no boxes.
+ */
+export function rtreeBoxes(root: RNode): RTreeBox[] {
+  if (root.kind === 'leaf' && root.points.length === 0) return []
+  return rtreeNodes(root)
+    .map((node) => ({ level: node.level, rect: node.mbr }))
+    .sort((a, b) => b.level - a.level)
+}

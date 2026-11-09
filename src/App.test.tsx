@@ -22,6 +22,21 @@ function twoDotImage() {
   return { width, height, data }
 }
 
+/** 100 by 40 white image with 8 black 4 by 4 squares in a row. */
+function eightDotImage() {
+  const width = 100
+  const height = 40
+  const data = new Uint8ClampedArray(width * height * 4).fill(255)
+  for (let dot = 0; dot < 8; dot++) {
+    const left = 4 + dot * 12
+    const top = 10 + (dot % 3) * 8
+    for (let y = top; y < top + 4; y++) {
+      for (let x = left; x < left + 4; x++) data.set([0, 0, 0, 255], (y * width + x) * 4)
+    }
+  }
+  return { width, height, data }
+}
+
 class ResizeObserverStub {
   observe() {}
   disconnect() {}
@@ -112,8 +127,39 @@ describe('App', () => {
     expect(capacity).toHaveAttribute('aria-invalid', 'true')
     expect(summary().getByText('Leaves').nextSibling).toHaveTextContent('2')
 
-    await user.click(screen.getByRole('radio', { name: 'Points only' }))
+    await user.click(screen.getByRole('radio', { name: 'Points' }))
     expect(screen.queryByTestId('kd-summary')).not.toBeInTheDocument()
+  })
+
+  it('shows R-tree stats for both build methods and toggles levels', async () => {
+    vi.mocked(readImagePixels).mockReturnValue(eightDotImage())
+    vi.stubGlobal('createImageBitmap', vi.fn().mockResolvedValue({ width: 100, height: 40, close: vi.fn() }))
+    const user = userEvent.setup()
+    render(<App />)
+    await user.upload(screen.getByLabelText('Image file'), new File(['x'], 'dots.png', { type: 'image/png' }))
+    expect(await screen.findByTestId('point-count')).toHaveTextContent('8 points')
+
+    await user.click(screen.getByRole('radio', { name: 'R-tree' }))
+
+    const stats = within(screen.getByTestId('rtree-stats'))
+    expect(stats.getByRole('columnheader', { name: 'STR' })).toHaveClass('is-selected')
+    // 8 points with max 5: STR makes 2 leaves of 4 under a root, so height 2.
+    const strCell = (row: string) => stats.getByRole('rowheader', { name: row }).nextElementSibling
+    expect(strCell('Height')).toHaveTextContent('2')
+    expect(strCell('Leaves')).toHaveTextContent('2')
+    expect(strCell('Average fill')).toHaveTextContent('80%')
+    expect(screen.getByRole('img', { name: /R-tree with 2 leaves/ })).toBeInTheDocument()
+
+    await user.selectOptions(screen.getByLabelText('Build method'), 'Quadratic insertion')
+    expect(stats.getByRole('columnheader', { name: 'Quadratic' })).toHaveClass('is-selected')
+    expect(stats.getByRole('columnheader', { name: 'STR' })).not.toHaveClass('is-selected')
+
+    const levels = within(screen.getByRole('list', { name: 'R-tree levels' }))
+    const leaves = levels.getByRole('checkbox', { name: /Level 0 \(leaves\)/ })
+    expect(leaves).toBeChecked()
+    await user.click(leaves)
+    expect(leaves).not.toBeChecked()
+    expect(levels.getByRole('checkbox', { name: /Level 1 \(root\)/ })).toBeChecked()
   })
 
   it('still shows the image when detection fails', async () => {

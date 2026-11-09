@@ -8,6 +8,7 @@ import {
   quadraticSplit,
   rectOfPoint,
   resolveRTreeOptions,
+  rtreeBoxes,
   rtreeLeaves,
   rtreeNodes,
   unionRect,
@@ -275,5 +276,20 @@ describe('analyzeRTree', () => {
   it('treats a lone root leaf as height 1 with its own fill', () => {
     const analysis = analyzeRTree(buildRTreeStr(scatteredPoints(3)))
     expect(analysis).toMatchObject({ height: 1, nodeCount: 1, leafCount: 1, averageFill: 0.6 })
+  })
+})
+
+describe('rtreeBoxes', () => {
+  it('lists every node box, highest level first', () => {
+    const root = buildRTreeStr(scatteredPoints(40))
+    const boxes = rtreeBoxes(root)
+    expect(boxes).toHaveLength(rtreeNodes(root).length)
+    expect(boxes.map((box) => box.level)).toEqual([2, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0])
+    expect(boxes[0].rect).toEqual(root.mbr)
+  })
+
+  it('returns nothing for an empty tree', () => {
+    expect(rtreeBoxes(buildRTreeStr([]))).toEqual([])
+    expect(rtreeBoxes(buildRTreeQuadratic([]))).toEqual([])
   })
 })

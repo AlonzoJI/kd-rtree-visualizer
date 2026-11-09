@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import { ImageCanvas } from './components/ImageCanvas'
-import { KdTreePanel, type ViewMode } from './components/KdTreePanel'
+import { KdTreePanel } from './components/KdTreePanel'
+import { RTreePanel, type RTreeLevelInfo, type RTreeMethod } from './components/RTreePanel'
+import { ViewModeSwitch, type ViewMode } from './components/ViewModeSwitch'
 import { Sidebar } from './components/Sidebar'
 import { detectPoints, type DetectionResult } from './detection/detectPoints'
 import type { Point } from './geometry/imageSpace'
@@ -10,8 +12,10 @@ import { readImagePixels } from './image/readPixels'
 import { togglePointAt } from './points/editPoints'
 import { DEFAULT_KD_SETTINGS, parseLeafCapacity } from './settings/kdSettings'
 import { buildKdTree, kdSplitSegments, summarizeKdTree, type Axis, type KdSplitSegment } from './trees/kdtree'
+import { analyzeRTree, buildRTreeQuadratic, buildRTreeStr, rtreeBoxes, type RTreeBox } from './trees/rtree'
 
 const NO_SEGMENTS: readonly KdSplitSegment[] = []
+const NO_BOXES: readonly RTreeBox[] = []
 
 const DETECTION_FAILED = 'Could not scan this image for dots. You can still add points by clicking the image.'
 
@@ -55,6 +59,43 @@ export default function App() {
   )
   const kdSegments = useMemo(() => (kdTree ? kdSplitSegments(kdTree) : NO_SEGMENTS), [kdTree])
   const kdSummary = useMemo(() => (kdTree ? summarizeKdTree(kdTree) : null), [kdTree])
+
+  const [rtreeMethod, setRtreeMethod] = useState<RTreeMethod>('str')
+  const [hiddenLevels, setHiddenLevels] = useState<ReadonlySet<number>>(new Set())
+
+  // Both methods are built over the same points so the sidebar can compare them.
+  const rtrees = useMemo(
+    () => (viewMode === 'rtree' && image ? { str: buildRTreeStr(points), quadratic: buildRTreeQuadratic(points) } : null),
+    [viewMode, image, points],
+  )
+  const rtreeAnalyses = useMemo(
+    () => (rtrees ? { str: analyzeRTree(rtrees.str), quadratic: analyzeRTree(rtrees.quadratic) } : null),
+    [rtrees],
+  )
+  const allRtreeBoxes = useMemo(() => (rtrees ? rtreeBoxes(rtrees[rtreeMethod]) : NO_BOXES), [rtrees, rtreeMethod])
+  const visibleRtreeBoxes = useMemo(
+    () => allRtreeBoxes.filter((box) => !hiddenLevels.has(box.level)),
+    [allRtreeBoxes, hiddenLevels],
+  )
+  const rtreeLevels = useMemo(() => {
+    const counts = new Map<number, number>()
+    for (const box of allRtreeBoxes) counts.set(box.level, (counts.get(box.level) ?? 0) + 1)
+    return [...counts].map(([level, boxes]): RTreeLevelInfo => ({ level, boxes }))
+  }, [allRtreeBoxes])
+
+  function toggleLevel(level: number) {
+    setHiddenLevels((current) => {
+      const next = new Set(current)
+      if (!next.delete(level)) next.add(level)
+      return next
+    })
+  }
+
+  const overlayLabel = kdSummary
+    ? `k-d tree with ${kdSummary.leafCount} leaves`
+    : rtreeAnalyses
+      ? `R-tree with ${rtreeAnalyses[rtreeMethod].leafCount} leaves`
+      : undefined
 
   function handleCapacityInput(value: string) {
     setCapacityInput(value)
@@ -107,24 +148,36 @@ export default function App() {
         detection={detection}
         onResetPoints={() => setPoints(detection?.points ?? [])}
       >
-        <KdTreePanel
-          mode={viewMode}
-          onModeChange={setViewMode}
-          capacityInput={capacityInput}
-          capacityError={capacityParse.ok ? null : capacityParse.message}
-          leafCapacity={leafCapacity}
-          onCapacityInputChange={handleCapacityInput}
-          startAxis={startAxis}
-          onStartAxisChange={setStartAxis}
-          summary={kdSummary}
-        />
+        <ViewModeSwitch mode={viewMode} onModeChange={setViewMode} />
+        {viewMode === 'kd' && (
+          <KdTreePanel
+            capacityInput={capacityInput}
+            capacityError={capacityParse.ok ? null : capacityParse.message}
+            leafCapacity={leafCapacity}
+            onCapacityInputChange={handleCapacityInput}
+            startAxis={startAxis}
+            onStartAxisChange={setStartAxis}
+            summary={kdSummary}
+          />
+        )}
+        {viewMode === 'rtree' && rtreeAnalyses && (
+          <RTreePanel
+            method={rtreeMethod}
+            onMethodChange={setRtreeMethod}
+            analyses={rtreeAnalyses}
+            levels={rtreeLevels}
+            hiddenLevels={hiddenLevels}
+            onToggleLevel={toggleLevel}
+          />
+        )}
       </Sidebar>
       <main className="main">
         <ImageCanvas
           image={image}
           points={points}
           kdSegments={kdSegments}
-          overlayLabel={kdSummary ? `k-d tree with ${kdSummary.leafCount} leaves` : undefined}
+          rtreeBoxes={visibleRtreeBoxes}
+          overlayLabel={overlayLabel}
           onPointerMove={setPointer}
           onScaleChange={setScale}
           onImageClick={(point, hitRadius) => setPoints((current) => togglePointAt(current, point, hitRadius))}
