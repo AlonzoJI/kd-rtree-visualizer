@@ -181,14 +181,27 @@ function packStr<T>(items: readonly T[], centerOf: (item: T) => Point, { maxEntr
   return groups
 }
 
-/** Builds an R-tree in one pass with Sort-Tile-Recursive packing. The input array is not modified. */
-export function buildRTreeStr(points: readonly Point[], options: RTreeOptions = {}): RNode {
+export interface StrBuildTrace {
+  root: RNode
+  /** Every node in the order STR created it: all leaves first, then each level up, root last. */
+  order: RNode[]
+}
+
+/** STR bulk load that also records the order nodes were created in. The input array is not modified. */
+export function buildRTreeStrTrace(points: readonly Point[], options: RTreeOptions = {}): StrBuildTrace {
   const resolved = resolveRTreeOptions(options)
   let level: RNode[] = packStr(points, (point) => point, resolved).map(makeLeaf)
+  const order = [...level]
   while (level.length > 1) {
     level = packStr(level, (node) => center(node.mbr), resolved).map(makeInternal)
+    order.push(...level)
   }
-  return level[0]
+  return { root: level[0], order }
+}
+
+/** Builds an R-tree in one pass with Sort-Tile-Recursive packing. The input array is not modified. */
+export function buildRTreeStr(points: readonly Point[], options: RTreeOptions = {}): RNode {
+  return buildRTreeStrTrace(points, options).root
 }
 
 // Guttman insertion with quadratic split -----------------------------------
@@ -414,7 +427,10 @@ export interface RTreeBox {
  */
 export function rtreeBoxes(root: RNode): RTreeBox[] {
   if (root.kind === 'leaf' && root.points.length === 0) return []
-  return rtreeNodes(root)
-    .map((node) => ({ level: node.level, rect: node.mbr }))
-    .sort((a, b) => b.level - a.level)
+  return boxesOf(rtreeNodes(root))
+}
+
+/** Boxes for any list of nodes, highest level first; ties keep the given order. */
+export function boxesOf(nodes: readonly RNode[]): RTreeBox[] {
+  return nodes.map((node) => ({ level: node.level, rect: node.mbr })).sort((a, b) => b.level - a.level)
 }

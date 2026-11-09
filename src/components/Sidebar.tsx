@@ -10,6 +10,7 @@ interface SidebarProps {
   error: string | null
   isLoading: boolean
   onFileSelected: (file: File) => void
+  onLoadSample: () => void
   points: readonly Point[]
   detection: DetectionResult | null
   onResetPoints: () => void
@@ -36,6 +37,7 @@ export function Sidebar({
   error,
   isLoading,
   onFileSelected,
+  onLoadSample,
   points,
   detection,
   onResetPoints,
@@ -71,7 +73,10 @@ export function Sidebar({
         <button type="button" className="button" onClick={() => inputRef.current?.click()} disabled={isLoading}>
           {isLoading ? 'Loading…' : image ? 'Replace image' : 'Upload image'}
         </button>
-        <p className="hint">PNG or JPG</p>
+        <button type="button" className="button button-secondary" onClick={onLoadSample} disabled={isLoading}>
+          Load sample
+        </button>
+        <p className="hint">PNG or JPG, or a built-in set of 40 dots.</p>
         {error && (
           <p className="error" role="alert">
             {error}

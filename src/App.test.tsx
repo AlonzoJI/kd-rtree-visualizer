@@ -2,9 +2,23 @@ import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
+import { downloadCanvas, renderExportCanvas } from './export/exportPng'
 import { readImagePixels } from './image/readPixels'
 
 vi.mock('./image/readPixels', () => ({ readImagePixels: vi.fn() }))
+vi.mock('./sample/sample', () => ({
+  createSampleImage: vi.fn(async () => ({
+    bitmap: { width: 100, height: 40, close: vi.fn() },
+    width: 100,
+    height: 40,
+    fileName: 'sample-points.png',
+  })),
+}))
+vi.mock('./export/exportPng', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./export/exportPng')>()),
+  renderExportCanvas: vi.fn(() => ({})),
+  downloadCanvas: vi.fn(async () => {}),
+}))
 
 /** 40 by 20 white image with two 5 by 5 black squares. */
 function twoDotImage() {
@@ -56,7 +70,7 @@ describe('App', () => {
     render(<App />)
     expect(screen.getByRole('heading', { name: 'Spatial Index Visualizer' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Upload image' })).toBeInTheDocument()
-    expect(screen.getByText('Upload a PNG or JPG to start.')).toBeInTheDocument()
+    expect(screen.getByText('Upload a PNG or JPG, or load the sample, to start.')).toBeInTheDocument()
   })
 
   it('shows an error for a file that is not PNG or JPG', async () => {
@@ -160,6 +174,70 @@ describe('App', () => {
     await user.click(leaves)
     expect(leaves).not.toBeChecked()
     expect(levels.getByRole('checkbox', { name: /Level 1 \(root\)/ })).toBeChecked()
+  })
+
+  it('loads the built-in sample without an upload', async () => {
+    vi.mocked(readImagePixels).mockReturnValue(eightDotImage())
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: 'Load sample' }))
+
+    expect(await screen.findByTestId('point-count')).toHaveTextContent('8 points')
+    expect(screen.getByText('sample-points.png')).toBeInTheDocument()
+  })
+
+  it('steps through the k-d build one split at a time', async () => {
+    vi.mocked(readImagePixels).mockReturnValue(eightDotImage())
+    const user = userEvent.setup()
+    render(<App />)
+    await user.click(screen.getByRole('button', { name: 'Load sample' }))
+    await screen.findByTestId('point-count')
+    await user.click(screen.getByRole('radio', { name: 'k-d tree' }))
+    await user.clear(screen.getByLabelText('Leaf capacity'))
+    await user.type(screen.getByLabelText('Leaf capacity'), '2')
+
+    await user.click(screen.getByRole('button', { name: 'Step through build' }))
+    // 8 points, capacity 2. Three of the dots share y = 20, so one half splits
+    // 1 / 3 instead of 2 / 2 and needs an extra split: 4 in all.
+    expect(screen.getByText('Step 0 of 4')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Back' })).toBeDisabled()
+
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    expect(screen.getByText('Step 1 of 4')).toBeInTheDocument()
+    expect(screen.getByTestId('step-caption')).toHaveTextContent(/^Split 1 of 4: x = [\d.]+ at depth 0\. 8 points divided 4 \/ 4\.$/)
+
+    for (let i = 0; i < 3; i++) await user.click(screen.getByRole('button', { name: 'Next' }))
+    expect(screen.getByText('Step 4 of 4')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled()
+
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+    expect(screen.getByText('Step 3 of 4')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Show finished tree' }))
+    expect(screen.queryByTestId('step-caption')).not.toBeInTheDocument()
+  })
+
+  it('exports what is on screen, named after the image and view', async () => {
+    vi.mocked(readImagePixels).mockReturnValue(eightDotImage())
+    const user = userEvent.setup()
+    render(<App />)
+    await user.click(screen.getByRole('button', { name: 'Load sample' }))
+    await screen.findByTestId('point-count')
+    await user.click(screen.getByRole('radio', { name: 'R-tree' }))
+    await user.click(screen.getByRole('button', { name: 'Step through build' }))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+
+    await user.click(screen.getByRole('button', { name: 'Export PNG' }))
+
+    const [image, content, legend] = vi.mocked(renderExportCanvas).mock.calls.at(-1)!
+    expect(image).toMatchObject({ width: 100, height: 40 })
+    // Step 1 of the STR build shows only the first leaf.
+    expect(content.rtreeBoxes).toHaveLength(1)
+    expect(content.points).toHaveLength(8)
+    expect(legend.title).toBe('R-tree, STR bulk load')
+    expect(legend.lines).toContain('Build step 1 of 3')
+    expect(vi.mocked(downloadCanvas)).toHaveBeenLastCalledWith(expect.anything(), 'sample-points-rtree-str-step-1.png')
   })
 
   it('still shows the image when detection fails', async () => {

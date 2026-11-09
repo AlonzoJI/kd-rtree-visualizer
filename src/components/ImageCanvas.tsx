@@ -2,25 +2,18 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent,
 import {
   clientToImage,
   computeCanvasLayout,
-  imageToBackingTransform,
   isInsideImage,
   type Point,
   type Size,
 } from '../geometry/imageSpace'
 import type { LoadedImage } from '../image/loadImage'
 import { nearestPointIndex } from '../points/editPoints'
-import { drawKdSplits } from '../render/kdTreeStyle'
-import { drawRTreeBoxes } from '../render/rtreeStyle'
+import { drawScene, type SceneHighlight } from '../render/drawScene'
 import type { KdSplitSegment } from '../trees/kdtree'
 import type { RTreeBox } from '../trees/rtree'
 
-/** Marker and hit sizes are in CSS pixels so they look the same at any zoom. */
-const MARKER_RADIUS = 5
-const MARKER_STROKE = 2
-const HOVER_RADIUS = 7
+/** Pointer hit radius in CSS pixels. */
 const HIT_RADIUS = 9
-const MARKER_COLOR = '#ff2d55'
-const HALO_COLOR = 'rgba(255, 255, 255, 0.9)'
 
 interface ImageCanvasProps {
   image: LoadedImage | null
@@ -29,8 +22,12 @@ interface ImageCanvasProps {
   kdSegments: readonly KdSplitSegment[]
   /** R-tree boxes in image pixels, highest level first. Empty when the tree is hidden. */
   rtreeBoxes: readonly RTreeBox[]
+  /** Shading for what the latest build step added, when stepping through. */
+  highlight?: SceneHighlight | null
   /** Describes the overlay for screen readers, e.g. "k-d tree with 8 leaves". */
   overlayLabel?: string
+  /** Shown when there is no image. */
+  emptyMessage?: string
   /** Called with the pointer position in image pixels, or null when it leaves the image. */
   onPointerMove?: (point: Point | null) => void
   onScaleChange?: (scale: number | null) => void
@@ -38,63 +35,12 @@ interface ImageCanvasProps {
   onImageClick?: (point: Point, hitRadius: number) => void
 }
 
-interface SceneOptions {
-  image: LoadedImage
-  backingSize: Size
-  /** CSS pixels per image pixel, used to keep markers a constant size on screen. */
-  scale: number
-  points: readonly Point[]
-  kdSegments: readonly KdSplitSegment[]
-  rtreeBoxes: readonly RTreeBox[]
-  hoveredIndex: number
-}
-
 /**
- * Draws one frame: image, then tree overlay, then point markers on top.
- * After `setTransform`, every call uses image pixel coordinates.
+ * Overlays keep a constant screen size, but shrink (down to half) when the
+ * image is shown small, so they do not swamp the dots they mark.
  */
-function drawScene(
-  ctx: CanvasRenderingContext2D,
-  { image, backingSize, scale, points, kdSegments, rtreeBoxes, hoveredIndex }: SceneOptions,
-) {
-  ctx.setTransform(1, 0, 0, 1, 0, 0)
-  ctx.clearRect(0, 0, backingSize.width, backingSize.height)
-  ctx.setTransform(...imageToBackingTransform(image, backingSize))
-
-  // Transparent areas show as white, matching what detection saw.
-  ctx.fillStyle = '#ffffff'
-  ctx.fillRect(0, 0, image.width, image.height)
-  ctx.imageSmoothingEnabled = true
-  ctx.imageSmoothingQuality = 'high'
-  ctx.drawImage(image.bitmap, 0, 0, image.width, image.height)
-
-  // Overlays keep a constant screen size, but shrink (down to half) when the
-  // image is shown small, so they do not swamp the dots they mark.
-  const cssToImage = Math.min(1, Math.max(0.5, scale)) / scale
-  drawKdSplits(ctx, kdSegments, cssToImage)
-  drawRTreeBoxes(ctx, rtreeBoxes, cssToImage)
-
-  if (points.length === 0) return
-  const markers = new Path2D()
-  for (const point of points) {
-    markers.moveTo(point.x + MARKER_RADIUS * cssToImage, point.y)
-    markers.arc(point.x, point.y, MARKER_RADIUS * cssToImage, 0, Math.PI * 2)
-  }
-  ctx.lineWidth = (MARKER_STROKE + 2) * cssToImage
-  ctx.strokeStyle = HALO_COLOR
-  ctx.stroke(markers)
-  ctx.lineWidth = MARKER_STROKE * cssToImage
-  ctx.strokeStyle = MARKER_COLOR
-  ctx.stroke(markers)
-
-  const hovered = points[hoveredIndex]
-  if (hovered) {
-    ctx.beginPath()
-    ctx.arc(hovered.x, hovered.y, HOVER_RADIUS * cssToImage, 0, Math.PI * 2)
-    ctx.fillStyle = 'rgba(255, 45, 85, 0.35)'
-    ctx.fill()
-    ctx.stroke()
-  }
+function screenCssToImage(scale: number) {
+  return Math.min(1, Math.max(0.5, scale)) / scale
 }
 
 export function ImageCanvas({
@@ -102,7 +48,9 @@ export function ImageCanvas({
   points,
   kdSegments,
   rtreeBoxes,
+  highlight,
   overlayLabel,
+  emptyMessage = 'Upload a PNG or JPG to start.',
   onPointerMove,
   onScaleChange,
   onImageClick,
@@ -139,8 +87,16 @@ export function ImageCanvas({
     if (canvas.width !== layout.backingSize.width) canvas.width = layout.backingSize.width
     if (canvas.height !== layout.backingSize.height) canvas.height = layout.backingSize.height
     const ctx = canvas.getContext('2d')
-    if (ctx) drawScene(ctx, { image, backingSize: layout.backingSize, scale: layout.scale, points, kdSegments, rtreeBoxes, hoveredIndex })
-  }, [image, layout, points, kdSegments, rtreeBoxes, hoveredIndex])
+    if (ctx) {
+      drawScene(ctx, image, layout.backingSize, screenCssToImage(layout.scale), {
+        points,
+        kdSegments,
+        rtreeBoxes,
+        highlight,
+        hoveredIndex,
+      })
+    }
+  }, [image, layout, points, kdSegments, rtreeBoxes, highlight, hoveredIndex])
 
   function toImagePoint(event: MouseEvent<HTMLCanvasElement>): Point | null {
     if (!image) return null
@@ -189,7 +145,7 @@ export function ImageCanvas({
           onClick={handleClick}
         />
       ) : (
-        <p className="canvas-empty">Upload a PNG or JPG to start.</p>
+        <p className="canvas-empty">{emptyMessage}</p>
       )}
     </div>
   )

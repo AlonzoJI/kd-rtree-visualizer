@@ -1,6 +1,6 @@
 .app {
   display: grid;
-  grid-template-columns: 260px minmax(0, 1fr);
+  grid-template-columns: 280px minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr);
   grid-template-areas:
     'header header'
@@ -30,10 +30,12 @@
 
 .sidebar {
   grid-area: sidebar;
+  /* Contains the absolutely positioned visually-hidden labels, which would otherwise make the page scroll. */
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 24px;
-  padding: 20px;
+  gap: 20px;
+  padding: 18px 20px;
   overflow-y: auto;
   background: var(--surface);
   border-right: 1px solid var(--border);
@@ -55,9 +57,14 @@
   font-weight: 500;
   color: var(--accent-text);
   background: var(--accent);
-  border: 0;
+  /* Transparent border so primary and secondary buttons are the same height. */
+  border: 1px solid transparent;
   border-radius: 6px;
   cursor: pointer;
+}
+
+.sidebar-section .hint + .button-secondary {
+  margin-top: 12px;
 }
 
 .button:hover:not(:disabled) {
@@ -108,6 +115,7 @@
 .main {
   grid-area: main;
   display: flex;
+  flex-direction: column;
   min-width: 0;
   min-height: 0;
   background: var(--canvas-bg);
@@ -155,8 +163,32 @@
     border-bottom: 1px solid var(--border);
   }
 
+  /* On narrow screens the whole page scrolls instead of the sidebar. */
+  .app {
+    height: auto;
+    min-height: 100%;
+  }
+
+  .sidebar {
+    overflow: visible;
+  }
+
   .main {
     min-height: 60vh;
+  }
+
+  .canvas-toolbar {
+    padding: 10px 16px;
+  }
+
+  /* Toggle and Export share the first row; Back, count and Next span the second. */
+  .step-nav {
+    order: 3;
+    width: 100%;
+  }
+
+  .step-count {
+    flex: 1;
   }
 
   .canvas-area {
@@ -176,7 +208,6 @@
 }
 
 .button-secondary {
-  margin-top: 12px;
   color: var(--text);
   background: transparent;
   border: 1px solid var(--border);
@@ -383,4 +414,50 @@
 
 .rtree-swatch {
   display: block;
+}
+
+.button-small {
+  width: auto;
+  padding: 6px 12px;
+  font-size: 0.875rem;
+}
+
+.sidebar-section .button + .button {
+  margin-top: 8px;
+}
+
+.canvas-toolbar {
+  padding: 10px 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.toolbar-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.step-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.step-count {
+  min-width: 92px;
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.toolbar-export {
+  margin-left: auto;
+}
+
+.step-caption {
+  margin-top: 8px;
+  font-size: 0.9rem;
 }

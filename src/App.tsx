@@ -1,21 +1,36 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
+import { CanvasToolbar } from './components/CanvasToolbar'
 import { ImageCanvas } from './components/ImageCanvas'
 import { KdTreePanel } from './components/KdTreePanel'
 import { RTreePanel, type RTreeLevelInfo, type RTreeMethod } from './components/RTreePanel'
 import { ViewModeSwitch, type ViewMode } from './components/ViewModeSwitch'
 import { Sidebar } from './components/Sidebar'
 import { detectPoints, type DetectionResult } from './detection/detectPoints'
+import { downloadCanvas, exportFileName, renderExportCanvas } from './export/exportPng'
 import type { Point } from './geometry/imageSpace'
 import { loadImageFile, type LoadedImage } from './image/loadImage'
 import { readImagePixels } from './image/readPixels'
 import { togglePointAt } from './points/editPoints'
+import { kdHighlight, rtreeHighlight } from './render/drawScene'
+import { kdLegend, pointsLegend, rtreeLegend, type Legend } from './render/legend'
+import { createSampleImage } from './sample/sample'
 import { DEFAULT_KD_SETTINGS, parseLeafCapacity } from './settings/kdSettings'
 import { buildKdTree, kdSplitSegments, summarizeKdTree, type Axis, type KdSplitSegment } from './trees/kdtree'
-import { analyzeRTree, buildRTreeQuadratic, buildRTreeStr, rtreeBoxes, type RTreeBox } from './trees/rtree'
+import { analyzeRTree, buildRTreeQuadratic, buildRTreeStrTrace, rtreeBoxes, type RTreeBox } from './trees/rtree'
+import { kdFrame, quadraticFrame, strFrame } from './steps/buildSteps'
 
 const NO_SEGMENTS: readonly KdSplitSegment[] = []
 const NO_BOXES: readonly RTreeBox[] = []
+
+/** Box count per level, highest level first (boxes arrive sorted that way). */
+function countLevels(boxes: readonly RTreeBox[]): RTreeLevelInfo[] {
+  const counts = new Map<number, number>()
+  for (const box of boxes) counts.set(box.level, (counts.get(box.level) ?? 0) + 1)
+  return [...counts].map(([level, count]) => ({ level, boxes: count }))
+}
+
+const METHOD_LABELS: Record<RTreeMethod, string> = { str: 'STR bulk load', quadratic: 'quadratic insertion' }
 
 const DETECTION_FAILED = 'Could not scan this image for dots. You can still add points by clicking the image.'
 
@@ -64,24 +79,17 @@ export default function App() {
   const [hiddenLevels, setHiddenLevels] = useState<ReadonlySet<number>>(new Set())
 
   // Both methods are built over the same points so the sidebar can compare them.
-  const rtrees = useMemo(
-    () => (viewMode === 'rtree' && image ? { str: buildRTreeStr(points), quadratic: buildRTreeQuadratic(points) } : null),
-    [viewMode, image, points],
-  )
+  const rtrees = useMemo(() => {
+    if (viewMode !== 'rtree' || !image) return null
+    const strTrace = buildRTreeStrTrace(points)
+    return { strTrace, str: strTrace.root, quadratic: buildRTreeQuadratic(points) }
+  }, [viewMode, image, points])
   const rtreeAnalyses = useMemo(
     () => (rtrees ? { str: analyzeRTree(rtrees.str), quadratic: analyzeRTree(rtrees.quadratic) } : null),
     [rtrees],
   )
   const allRtreeBoxes = useMemo(() => (rtrees ? rtreeBoxes(rtrees[rtreeMethod]) : NO_BOXES), [rtrees, rtreeMethod])
-  const visibleRtreeBoxes = useMemo(
-    () => allRtreeBoxes.filter((box) => !hiddenLevels.has(box.level)),
-    [allRtreeBoxes, hiddenLevels],
-  )
-  const rtreeLevels = useMemo(() => {
-    const counts = new Map<number, number>()
-    for (const box of allRtreeBoxes) counts.set(box.level, (counts.get(box.level) ?? 0) + 1)
-    return [...counts].map(([level, boxes]): RTreeLevelInfo => ({ level, boxes }))
-  }, [allRtreeBoxes])
+  const rtreeLevels = useMemo(() => countLevels(allRtreeBoxes), [allRtreeBoxes])
 
   function toggleLevel(level: number) {
     setHiddenLevels((current) => {
@@ -89,6 +97,91 @@ export default function App() {
       if (!next.delete(level)) next.add(level)
       return next
     })
+  }
+
+  // Step-through: reveal the build one split, node or insertion at a time.
+  const [stepMode, setStepMode] = useState(false)
+  const [step, setStep] = useState(0)
+  const frame = useMemo(() => {
+    if (!stepMode) return null
+    if (viewMode === 'kd' && kdTree) return kdFrame(kdTree, step)
+    if (viewMode === 'rtree' && rtrees) {
+      return rtreeMethod === 'str' ? strFrame(rtrees.strTrace, step, points.length) : quadraticFrame(points, step)
+    }
+    return null
+  }, [stepMode, viewMode, kdTree, rtrees, rtreeMethod, points, step])
+
+  const drawnKdSegments = frame ? frame.kdSegments : kdSegments
+  const drawnRtreeBoxes = useMemo(
+    () => (frame ? frame.rtreeBoxes : allRtreeBoxes).filter((box) => !hiddenLevels.has(box.level)),
+    [frame, allRtreeBoxes, hiddenLevels],
+  )
+  const highlight = useMemo(() => {
+    if (!frame?.highlight) return null
+    const { rect, level } = frame.highlight
+    return viewMode === 'kd' ? kdHighlight(rect) : rtreeHighlight(rect, level)
+  }, [frame, viewMode])
+
+  function changeViewMode(mode: ViewMode) {
+    setViewMode(mode)
+    setStep(0)
+  }
+
+  function changeRtreeMethod(method: RTreeMethod) {
+    setRtreeMethod(method)
+    setStep(0)
+  }
+
+  function changeStepMode(on: boolean) {
+    setStepMode(on)
+    setStep(0)
+  }
+
+  const [isExporting, setIsExporting] = useState(false)
+
+  function currentLegend(): Legend {
+    const stepInfo = frame ? { step: frame.step, total: frame.total } : null
+    if (viewMode === 'kd' && kdSummary) {
+      return kdLegend({
+        summary: kdSummary,
+        leafCapacity,
+        startAxis,
+        pointCount: points.length,
+        step: stepInfo,
+        shownDepths: frame ? new Set(frame.kdSegments.map((segment) => segment.depth)) : undefined,
+      })
+    }
+    if (viewMode === 'rtree' && rtreeAnalyses) {
+      return rtreeLegend({
+        methodLabel: METHOD_LABELS[rtreeMethod],
+        analysis: rtreeAnalyses[rtreeMethod],
+        // When stepping, describe only the boxes built so far.
+        levels: frame ? countLevels(frame.rtreeBoxes) : rtreeLevels,
+        hiddenLevels,
+        pointCount: points.length,
+        step: stepInfo,
+      })
+    }
+    return pointsLegend(points.length)
+  }
+
+  async function handleExport() {
+    if (!image) return
+    setIsExporting(true)
+    setError(null)
+    try {
+      const canvas = renderExportCanvas(
+        image,
+        { points, kdSegments: drawnKdSegments, rtreeBoxes: drawnRtreeBoxes, highlight },
+        currentLegend(),
+      )
+      const view = viewMode === 'kd' ? 'kd-tree' : viewMode === 'rtree' ? `rtree-${rtreeMethod}` : 'points'
+      await downloadCanvas(canvas, exportFileName(image.fileName, frame ? `${view}-step-${frame.step}` : view))
+    } catch (exportError) {
+      setError(exportError instanceof Error ? exportError.message : 'The PNG could not be exported.')
+    } finally {
+      setIsExporting(false)
+    }
   }
 
   const overlayLabel = kdSummary
@@ -106,12 +199,13 @@ export default function App() {
   // Free the decoded pixels when an image is replaced or the app unmounts.
   useEffect(() => () => image?.bitmap.close(), [image])
 
-  async function handleFileSelected(file: File) {
+  /** Loads an image from any source, runs detection and replaces the current points. */
+  async function loadImage(load: () => Promise<LoadedImage>) {
     const request = ++latestRequest.current
     setError(null)
     setIsLoading(true)
     try {
-      const loaded = await loadImageFile(file)
+      const loaded = await load()
       if (request !== latestRequest.current) {
         loaded.bitmap.close()
         return
@@ -121,6 +215,7 @@ export default function App() {
       setDetection(result)
       setPoints(result?.points ?? [])
       setPointer(null)
+      setStep(0)
       if (!result) setError(DETECTION_FAILED)
     } catch (loadError) {
       if (request === latestRequest.current) {
@@ -143,12 +238,13 @@ export default function App() {
         pointer={pointer}
         error={error}
         isLoading={isLoading}
-        onFileSelected={handleFileSelected}
+        onFileSelected={(file) => loadImage(() => loadImageFile(file))}
+        onLoadSample={() => loadImage(createSampleImage)}
         points={points}
         detection={detection}
         onResetPoints={() => setPoints(detection?.points ?? [])}
       >
-        <ViewModeSwitch mode={viewMode} onModeChange={setViewMode} />
+        <ViewModeSwitch mode={viewMode} onModeChange={changeViewMode} />
         {viewMode === 'kd' && (
           <KdTreePanel
             capacityInput={capacityInput}
@@ -163,7 +259,7 @@ export default function App() {
         {viewMode === 'rtree' && rtreeAnalyses && (
           <RTreePanel
             method={rtreeMethod}
-            onMethodChange={setRtreeMethod}
+            onMethodChange={changeRtreeMethod}
             analyses={rtreeAnalyses}
             levels={rtreeLevels}
             hiddenLevels={hiddenLevels}
@@ -172,12 +268,26 @@ export default function App() {
         )}
       </Sidebar>
       <main className="main">
+        {image && (
+          <CanvasToolbar
+            canStep={viewMode !== 'points'}
+            stepMode={stepMode}
+            onStepModeChange={changeStepMode}
+            steps={frame}
+            onBack={() => frame && setStep(frame.step - 1)}
+            onNext={() => frame && setStep(frame.step + 1)}
+            onExport={handleExport}
+            isExporting={isExporting}
+          />
+        )}
         <ImageCanvas
           image={image}
           points={points}
-          kdSegments={kdSegments}
-          rtreeBoxes={visibleRtreeBoxes}
+          kdSegments={drawnKdSegments}
+          rtreeBoxes={drawnRtreeBoxes}
+          highlight={highlight}
           overlayLabel={overlayLabel}
+          emptyMessage="Upload a PNG or JPG, or load the sample, to start."
           onPointerMove={setPointer}
           onScaleChange={setScale}
           onImageClick={(point, hitRadius) => setPoints((current) => togglePointAt(current, point, hitRadius))}

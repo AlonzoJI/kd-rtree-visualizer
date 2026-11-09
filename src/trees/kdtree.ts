@@ -157,7 +157,16 @@ export interface KdSplitSegment {
  * top-level splits on top. Ties keep parent-before-child tree order.
  */
 export function kdSplitSegments(tree: KdNode): KdSplitSegment[] {
-  const segments = kdInternalNodes(tree).map(({ axis, split, depth, region }) =>
+  return segmentsOf(kdInternalNodes(tree))
+}
+
+/**
+ * Split lines for the given internal nodes, deepest first. Pass
+ * `kdInternalNodes(tree).slice(0, n)` to get the first n splits in build order
+ * (the order the recursion makes them: a node, then its lower side, then its upper side).
+ */
+export function segmentsOf(nodes: readonly KdInternalNode[]): KdSplitSegment[] {
+  const segments = nodes.map(({ axis, split, depth, region }) =>
     axis === 'x'
       ? { depth, axis, x1: split, y1: region.minY, x2: split, y2: region.maxY }
       : { depth, axis, x1: region.minX, y1: split, x2: region.maxX, y2: split },
