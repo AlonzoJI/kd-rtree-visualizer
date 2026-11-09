@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent } from 'react'
 import {
   clientToImage,
   computeCanvasLayout,
@@ -8,32 +8,83 @@ import {
   type Size,
 } from '../geometry/imageSpace'
 import type { LoadedImage } from '../image/loadImage'
+import { nearestPointIndex } from '../points/editPoints'
+
+/** Marker and hit sizes are in CSS pixels so they look the same at any zoom. */
+const MARKER_RADIUS = 5
+const MARKER_STROKE = 2
+const HOVER_RADIUS = 7
+const HIT_RADIUS = 9
+const MARKER_COLOR = '#ff2d55'
+const HALO_COLOR = 'rgba(255, 255, 255, 0.9)'
 
 interface ImageCanvasProps {
   image: LoadedImage | null
+  points: readonly Point[]
   /** Called with the pointer position in image pixels, or null when it leaves the image. */
   onPointerMove?: (point: Point | null) => void
   onScaleChange?: (scale: number | null) => void
+  /** Called on click with the position and hit radius, both in image pixels. */
+  onImageClick?: (point: Point, hitRadius: number) => void
+}
+
+interface SceneOptions {
+  image: LoadedImage
+  backingSize: Size
+  /** CSS pixels per image pixel, used to keep markers a constant size on screen. */
+  scale: number
+  points: readonly Point[]
+  hoveredIndex: number
 }
 
 /**
- * Draws one frame. The context transform is set so that every call after
- * `setTransform` uses image pixel coordinates. Future overlays (points, k-d
- * splits, R-tree boxes) belong after `drawImage`, in the same coordinates.
+ * Draws one frame. After `setTransform`, every call uses image pixel
+ * coordinates. Later overlays (k-d splits, R-tree boxes) go after the points
+ * or before them, in the same coordinates.
  */
-function drawScene(ctx: CanvasRenderingContext2D, image: LoadedImage, backingSize: Size) {
+function drawScene(ctx: CanvasRenderingContext2D, { image, backingSize, scale, points, hoveredIndex }: SceneOptions) {
   ctx.setTransform(1, 0, 0, 1, 0, 0)
   ctx.clearRect(0, 0, backingSize.width, backingSize.height)
   ctx.setTransform(...imageToBackingTransform(image, backingSize))
+
+  // Transparent areas show as white, matching what detection saw.
+  ctx.fillStyle = '#ffffff'
+  ctx.fillRect(0, 0, image.width, image.height)
   ctx.imageSmoothingEnabled = true
   ctx.imageSmoothingQuality = 'high'
   ctx.drawImage(image.bitmap, 0, 0, image.width, image.height)
+
+  if (points.length === 0) return
+  // Markers keep a constant screen size, but shrink (down to half) when the
+  // image is shown small, so they do not swamp the dots they mark.
+  const cssToImage = Math.min(1, Math.max(0.5, scale)) / scale
+  const markers = new Path2D()
+  for (const point of points) {
+    markers.moveTo(point.x + MARKER_RADIUS * cssToImage, point.y)
+    markers.arc(point.x, point.y, MARKER_RADIUS * cssToImage, 0, Math.PI * 2)
+  }
+  ctx.lineWidth = (MARKER_STROKE + 2) * cssToImage
+  ctx.strokeStyle = HALO_COLOR
+  ctx.stroke(markers)
+  ctx.lineWidth = MARKER_STROKE * cssToImage
+  ctx.strokeStyle = MARKER_COLOR
+  ctx.stroke(markers)
+
+  const hovered = points[hoveredIndex]
+  if (hovered) {
+    ctx.beginPath()
+    ctx.arc(hovered.x, hovered.y, HOVER_RADIUS * cssToImage, 0, Math.PI * 2)
+    ctx.fillStyle = 'rgba(255, 45, 85, 0.35)'
+    ctx.fill()
+    ctx.stroke()
+  }
 }
 
-export function ImageCanvas({ image, onPointerMove, onScaleChange }: ImageCanvasProps) {
+export function ImageCanvas({ image, points, onPointerMove, onScaleChange, onImageClick }: ImageCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [available, setAvailable] = useState<Size>({ width: 0, height: 0 })
+  const [hoveredIndex, setHoveredIndex] = useState(-1)
 
   useLayoutEffect(() => {
     const container = containerRef.current
@@ -57,21 +108,36 @@ export function ImageCanvas({ image, onPointerMove, onScaleChange }: ImageCanvas
 
   useEffect(() => {
     const canvas = canvasRef.current
-    if (!canvas || !image || !layout) return
-    canvas.width = layout.backingSize.width
-    canvas.height = layout.backingSize.height
+    if (!canvas || !image || !layout || layout.scale <= 0) return
+    // Assigning width or height clears the canvas, so only do it when the size changes.
+    if (canvas.width !== layout.backingSize.width) canvas.width = layout.backingSize.width
+    if (canvas.height !== layout.backingSize.height) canvas.height = layout.backingSize.height
     const ctx = canvas.getContext('2d')
-    if (ctx) drawScene(ctx, image, layout.backingSize)
-  }, [image, layout])
+    if (ctx) drawScene(ctx, { image, backingSize: layout.backingSize, scale: layout.scale, points, hoveredIndex })
+  }, [image, layout, points, hoveredIndex])
+
+  function toImagePoint(event: MouseEvent<HTMLCanvasElement>): Point | null {
+    if (!image) return null
+    const point = clientToImage({ x: event.clientX, y: event.clientY }, event.currentTarget.getBoundingClientRect(), image)
+    return isInsideImage(point, image) ? point : null
+  }
+
+  function hitRadius() {
+    return layout && layout.scale > 0 ? HIT_RADIUS / layout.scale : 0
+  }
 
   function handlePointerMove(event: PointerEvent<HTMLCanvasElement>) {
-    if (!image) return
-    const point = clientToImage(
-      { x: event.clientX, y: event.clientY },
-      event.currentTarget.getBoundingClientRect(),
-      image,
-    )
-    onPointerMove?.(isInsideImage(point, image) ? point : null)
+    const point = toImagePoint(event)
+    onPointerMove?.(point)
+    setHoveredIndex(point ? nearestPointIndex(points, point, hitRadius()) : -1)
+  }
+
+  function handleClick(event: MouseEvent<HTMLCanvasElement>) {
+    const point = toImagePoint(event)
+    if (!point) return
+    onImageClick?.(point, hitRadius())
+    // The point under the cursor just changed; recompute hover on the next move.
+    setHoveredIndex(-1)
   }
 
   return (
@@ -79,12 +145,16 @@ export function ImageCanvas({ image, onPointerMove, onScaleChange }: ImageCanvas
       {image && layout ? (
         <canvas
           ref={canvasRef}
-          className="image-canvas"
+          className={`image-canvas${hoveredIndex >= 0 ? ' is-over-point' : ''}`}
           style={{ width: layout.cssSize.width, height: layout.cssSize.height }}
-          aria-label={`${image.fileName}, ${image.width} by ${image.height} pixels`}
+          aria-label={`${image.fileName}, ${image.width} by ${image.height} pixels, ${points.length} points marked`}
           role="img"
           onPointerMove={handlePointerMove}
-          onPointerLeave={() => onPointerMove?.(null)}
+          onPointerLeave={() => {
+            onPointerMove?.(null)
+            setHoveredIndex(-1)
+          }}
+          onClick={handleClick}
         />
       ) : (
         <p className="canvas-empty">Upload a PNG or JPG to start.</p>

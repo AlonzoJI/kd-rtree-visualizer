@@ -158,4 +158,39 @@
   .main {
     min-height: 60vh;
   }
+
+  .canvas-area {
+    align-items: flex-start;
+  }
+}
+
+.point-count {
+  font-size: 0.95rem;
+}
+
+.point-count strong {
+  font-size: 1.6rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  margin-right: 4px;
+}
+
+.button-secondary {
+  margin-top: 12px;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid var(--border);
+}
+
+.button-secondary:hover:not(:disabled) {
+  background: var(--bg);
+}
+
+.button-secondary:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.image-canvas.is-over-point {
+  cursor: pointer;
 }
