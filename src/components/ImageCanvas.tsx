@@ -9,6 +9,8 @@ import {
 } from '../geometry/imageSpace'
 import type { LoadedImage } from '../image/loadImage'
 import { nearestPointIndex } from '../points/editPoints'
+import { drawKdSplits } from '../render/kdTreeStyle'
+import type { KdSplitSegment } from '../trees/kdtree'
 
 /** Marker and hit sizes are in CSS pixels so they look the same at any zoom. */
 const MARKER_RADIUS = 5
@@ -21,6 +23,10 @@ const HALO_COLOR = 'rgba(255, 255, 255, 0.9)'
 interface ImageCanvasProps {
   image: LoadedImage | null
   points: readonly Point[]
+  /** k-d tree split lines in image pixels, deepest first. Empty when the tree is hidden. */
+  kdSegments: readonly KdSplitSegment[]
+  /** Describes the overlay for screen readers, e.g. "k-d tree with 8 leaves". */
+  overlayLabel?: string
   /** Called with the pointer position in image pixels, or null when it leaves the image. */
   onPointerMove?: (point: Point | null) => void
   onScaleChange?: (scale: number | null) => void
@@ -34,15 +40,18 @@ interface SceneOptions {
   /** CSS pixels per image pixel, used to keep markers a constant size on screen. */
   scale: number
   points: readonly Point[]
+  kdSegments: readonly KdSplitSegment[]
   hoveredIndex: number
 }
 
 /**
- * Draws one frame. After `setTransform`, every call uses image pixel
- * coordinates. Later overlays (k-d splits, R-tree boxes) go after the points
- * or before them, in the same coordinates.
+ * Draws one frame: image, then tree overlay, then point markers on top.
+ * After `setTransform`, every call uses image pixel coordinates.
  */
-function drawScene(ctx: CanvasRenderingContext2D, { image, backingSize, scale, points, hoveredIndex }: SceneOptions) {
+function drawScene(
+  ctx: CanvasRenderingContext2D,
+  { image, backingSize, scale, points, kdSegments, hoveredIndex }: SceneOptions,
+) {
   ctx.setTransform(1, 0, 0, 1, 0, 0)
   ctx.clearRect(0, 0, backingSize.width, backingSize.height)
   ctx.setTransform(...imageToBackingTransform(image, backingSize))
@@ -54,10 +63,12 @@ function drawScene(ctx: CanvasRenderingContext2D, { image, backingSize, scale, p
   ctx.imageSmoothingQuality = 'high'
   ctx.drawImage(image.bitmap, 0, 0, image.width, image.height)
 
-  if (points.length === 0) return
-  // Markers keep a constant screen size, but shrink (down to half) when the
+  // Overlays keep a constant screen size, but shrink (down to half) when the
   // image is shown small, so they do not swamp the dots they mark.
   const cssToImage = Math.min(1, Math.max(0.5, scale)) / scale
+  drawKdSplits(ctx, kdSegments, cssToImage)
+
+  if (points.length === 0) return
   const markers = new Path2D()
   for (const point of points) {
     markers.moveTo(point.x + MARKER_RADIUS * cssToImage, point.y)
@@ -80,7 +91,15 @@ function drawScene(ctx: CanvasRenderingContext2D, { image, backingSize, scale, p
   }
 }
 
-export function ImageCanvas({ image, points, onPointerMove, onScaleChange, onImageClick }: ImageCanvasProps) {
+export function ImageCanvas({
+  image,
+  points,
+  kdSegments,
+  overlayLabel,
+  onPointerMove,
+  onScaleChange,
+  onImageClick,
+}: ImageCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [available, setAvailable] = useState<Size>({ width: 0, height: 0 })
@@ -113,8 +132,8 @@ export function ImageCanvas({ image, points, onPointerMove, onScaleChange, onIma
     if (canvas.width !== layout.backingSize.width) canvas.width = layout.backingSize.width
     if (canvas.height !== layout.backingSize.height) canvas.height = layout.backingSize.height
     const ctx = canvas.getContext('2d')
-    if (ctx) drawScene(ctx, { image, backingSize: layout.backingSize, scale: layout.scale, points, hoveredIndex })
-  }, [image, layout, points, hoveredIndex])
+    if (ctx) drawScene(ctx, { image, backingSize: layout.backingSize, scale: layout.scale, points, kdSegments, hoveredIndex })
+  }, [image, layout, points, kdSegments, hoveredIndex])
 
   function toImagePoint(event: MouseEvent<HTMLCanvasElement>): Point | null {
     if (!image) return null
@@ -147,7 +166,13 @@ export function ImageCanvas({ image, points, onPointerMove, onScaleChange, onIma
           ref={canvasRef}
           className={`image-canvas${hoveredIndex >= 0 ? ' is-over-point' : ''}`}
           style={{ width: layout.cssSize.width, height: layout.cssSize.height }}
-          aria-label={`${image.fileName}, ${image.width} by ${image.height} pixels, ${points.length} points marked`}
+          aria-label={[
+            `${image.fileName}, ${image.width} by ${image.height} pixels`,
+            `${points.length} points marked`,
+            overlayLabel,
+          ]
+            .filter(Boolean)
+            .join(', ')}
           role="img"
           onPointerMove={handlePointerMove}
           onPointerLeave={() => {

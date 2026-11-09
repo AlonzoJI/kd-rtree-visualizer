@@ -1,4 +1,4 @@
-import { useId, useRef, type ChangeEvent } from 'react'
+import { useId, useRef, type ChangeEvent, type ReactNode } from 'react'
 import type { DetectionResult } from '../detection/detectPoints'
 import type { Point } from '../geometry/imageSpace'
 import { ACCEPTED_IMAGE_TYPES, type LoadedImage } from '../image/loadImage'
@@ -13,6 +13,8 @@ interface SidebarProps {
   points: readonly Point[]
   detection: DetectionResult | null
   onResetPoints: () => void
+  /** Extra sections shown under Points when an image is loaded. */
+  children?: ReactNode
 }
 
 function plural(count: number, one: string, many: string) {
@@ -37,6 +39,7 @@ export function Sidebar({
   points,
   detection,
   onResetPoints,
+  children,
 }: SidebarProps) {
   const isEdited = detection !== null && points !== detection.points
 
@@ -97,6 +100,8 @@ export function Sidebar({
           )}
         </section>
       )}
+
+      {image && children}
 
       {image && (
         <section className="sidebar-section">

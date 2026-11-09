@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
@@ -77,6 +77,43 @@ describe('App', () => {
     expect(await screen.findByTestId('point-count')).toHaveTextContent('2 points')
     expect(screen.getByText('Detected 2 dots.')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Reset to detected points' })).toBeDisabled()
+  })
+
+  it('builds a k-d tree from the points and updates it when settings change', async () => {
+    vi.mocked(readImagePixels).mockReturnValue(twoDotImage())
+    vi.stubGlobal('createImageBitmap', vi.fn().mockResolvedValue({ width: 40, height: 20, close: vi.fn() }))
+    const user = userEvent.setup()
+    render(<App />)
+    await user.upload(screen.getByLabelText('Image file'), new File(['x'], 'dots.png', { type: 'image/png' }))
+    await screen.findByTestId('point-count')
+
+    await user.click(screen.getByRole('radio', { name: 'k-d tree' }))
+    // Default capacity 5 holds both points in one leaf.
+    const summary = () => within(screen.getByTestId('kd-summary'))
+    expect(summary().getByText('Leaves').nextSibling).toHaveTextContent('1')
+    expect(screen.getByText('No splits yet. Add more points than the leaf capacity.')).toBeInTheDocument()
+
+    const capacity = screen.getByLabelText('Leaf capacity')
+    await user.clear(capacity)
+    await user.type(capacity, '1')
+    expect(summary().getByText('Depth').nextSibling).toHaveTextContent('1')
+    expect(summary().getByText('Leaves').nextSibling).toHaveTextContent('2')
+    expect(summary().getByText('Points per leaf').nextSibling).toHaveTextContent('1')
+    const legend = screen.getByRole('list', { name: 'Split levels' })
+    expect(within(legend).getByText('x · 1 split')).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: /k-d tree with 2 leaves/ })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('radio', { name: 'y' }))
+    expect(within(legend).getByText('y · 1 split')).toBeInTheDocument()
+
+    // An invalid entry shows an error and keeps the last valid tree.
+    await user.type(capacity, 'a')
+    expect(screen.getByText('Enter a whole number from 1 to 1000.')).toBeInTheDocument()
+    expect(capacity).toHaveAttribute('aria-invalid', 'true')
+    expect(summary().getByText('Leaves').nextSibling).toHaveTextContent('2')
+
+    await user.click(screen.getByRole('radio', { name: 'Points only' }))
+    expect(screen.queryByTestId('kd-summary')).not.toBeInTheDocument()
   })
 
   it('still shows the image when detection fails', async () => {

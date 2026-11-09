@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import type { Point } from '../geometry/imageSpace'
-import { buildKdTree, kdInternalNodes, kdLeaves, splitIndex, type KdNode, type Region } from './kdtree'
+import {
+  buildKdTree,
+  kdInternalNodes,
+  kdLeaves,
+  kdSplitSegments,
+  splitIndex,
+  summarizeKdTree,
+  type KdNode,
+  type Region,
+} from './kdtree'
 
 /** Deterministic pseudo-random points with distinct coordinates, laid out like dots on an image. */
 function scatteredPoints(count: number): Point[] {
@@ -174,5 +183,86 @@ describe('splitIndex', () => {
   it('returns -1 when every value is the same', () => {
     expect(splitIndex([4, 4, 4])).toBe(-1)
     expect(splitIndex([4])).toBe(-1)
+  })
+})
+
+describe('kdSplitSegments', () => {
+  const bounds = { minX: 0, minY: 0, maxX: 100, maxY: 50 }
+
+  it('clips each line to its own region', () => {
+    // Root splits x at 50; each half then splits on y.
+    const points = [
+      { x: 10, y: 10 },
+      { x: 20, y: 40 },
+      { x: 80, y: 5 },
+      { x: 90, y: 30 },
+    ]
+    const segments = kdSplitSegments(buildKdTree(points, { leafCapacity: 1, startAxis: 'x', bounds }))
+
+    expect(segments).toEqual([
+      { depth: 1, axis: 'y', x1: 0, y1: 25, x2: 50, y2: 25 },
+      { depth: 1, axis: 'y', x1: 50, y1: 17.5, x2: 100, y2: 17.5 },
+      { depth: 0, axis: 'x', x1: 50, y1: 0, x2: 50, y2: 50 },
+    ])
+  })
+
+  it('orders lines deepest first so the root is drawn last', () => {
+    const segments = kdSplitSegments(buildKdTree(scatteredPoints(40), { leafCapacity: 5, startAxis: 'x', bounds }))
+    expect(segments).toHaveLength(7)
+    expect(segments.map((segment) => segment.depth)).toEqual([2, 2, 2, 2, 1, 1, 0])
+  })
+
+  it('returns no lines for a single leaf', () => {
+    expect(kdSplitSegments(buildKdTree([], { leafCapacity: 5, startAxis: 'x' }))).toEqual([])
+  })
+})
+
+describe('summarizeKdTree', () => {
+  it('reports depth, leaves and points per leaf', () => {
+    const summary = summarizeKdTree(buildKdTree(scatteredPoints(40), { leafCapacity: 5, startAxis: 'y' }))
+    expect(summary).toEqual({
+      depth: 3,
+      leafCount: 8,
+      minLeafSize: 5,
+      maxLeafSize: 5,
+      meanLeafSize: 5,
+      levels: [
+        { depth: 0, axes: ['y'], splits: 1 },
+        { depth: 1, axes: ['x'], splits: 2 },
+        { depth: 2, axes: ['y'], splits: 4 },
+      ],
+    })
+  })
+
+  it('reports uneven leaves', () => {
+    const summary = summarizeKdTree(buildKdTree(scatteredPoints(23), { leafCapacity: 4, startAxis: 'x' }))
+    expect(summary).toMatchObject({ leafCount: 8, minLeafSize: 2, maxLeafSize: 3, meanLeafSize: 23 / 8 })
+  })
+
+  it('lists both axes on a level where duplicates forced a fallback', () => {
+    // The left half all shares x = 1, so its depth-2 split falls back to y.
+    const points = [
+      { x: 1, y: 1 },
+      { x: 1, y: 2 },
+      { x: 1, y: 3 },
+      { x: 1, y: 4 },
+      { x: 5, y: 1 },
+      { x: 6, y: 2 },
+      { x: 7, y: 3 },
+      { x: 8, y: 4 },
+    ]
+    const summary = summarizeKdTree(buildKdTree(points, { leafCapacity: 1, startAxis: 'x' }))
+    expect(summary.levels[2]).toEqual({ depth: 2, axes: ['x', 'y'], splits: 4 })
+  })
+
+  it('reports a lone leaf as depth 0 with no levels', () => {
+    expect(summarizeKdTree(buildKdTree([], { leafCapacity: 5, startAxis: 'x' }))).toEqual({
+      depth: 0,
+      leafCount: 1,
+      minLeafSize: 0,
+      maxLeafSize: 0,
+      meanLeafSize: 0,
+      levels: [],
+    })
   })
 })

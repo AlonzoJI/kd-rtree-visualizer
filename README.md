@@ -9,7 +9,7 @@ You upload an image (a map, a photo, a scan) to use as the backdrop, place point
 
 ## Status
 
-The app loads a PNG or JPG, finds the black dots on it, and lets you fix the result by hand. Neither tree is built yet.
+The app loads a PNG or JPG, finds the black dots on it, lets you fix the result by hand, and draws a k-d tree over the points. The R-tree is not built yet.
 
 ## Point detection
 
@@ -27,6 +27,16 @@ The thresholds are in `DEFAULT_DETECTION_OPTIONS`.
 Click empty space on the image to add a point, or click a marker to remove it. "Reset to detected points" undoes all hand edits.
 
 Known limits: a dot that touches a line or a letter merges with it and is dropped, and dots that are not dark (colored or light gray) are not detected. Add those by hand.
+
+## k-d tree view
+
+Pick **k-d tree** under View to draw the tree over the image. [`src/trees/kdtree.ts`](src/trees/kdtree.ts) builds it with no UI code:
+
+- Each node splits its points at the median, alternating x and y by depth, starting on the axis you choose. A node with at most "leaf capacity" points becomes a leaf.
+- The split value is the midpoint between the two middle sorted values, so no line passes through a point. With duplicate middle values, the split moves to the nearest position where the values differ. If a node's points all share one coordinate it splits on the other axis, and identical points stay in one leaf.
+- The root region is the whole image, and each split line is drawn only across its own node's region.
+
+Lines are colored and sized by depth: the top level is the darkest and thickest blue, and deeper levels are lighter and thinner. Deeper lines are drawn first so the top-level splits stay visible. The blue ramp has five steps (checked for even lightness gaps and contrast on white); levels past the fifth reuse the lightest blue and differ only by width. The sidebar shows the tree depth, leaf count, points per leaf, and a legend of each level's axis and split count. Everything redraws when points or settings change.
 
 ## Coordinates
 
@@ -65,10 +75,14 @@ src/
   App.tsx                    page layout and image loading state
   components/
     ImageCanvas.tsx          sizes the canvas, draws the image and point markers
+    KdTreePanel.tsx          view switch, k-d settings, summary and legend
     Sidebar.tsx              upload button, point count and image details
   detection/detectPoints.ts  dot detection (threshold, labeling, shape test, k-means split)
   geometry/imageSpace.ts     coordinate conversions (fit scale, canvas layout, pointer mapping)
   image/loadImage.ts         PNG/JPG validation and decoding
   image/readPixels.ts        reads a decoded image's RGBA pixels
   points/editPoints.ts       click to add or remove a point
+  render/kdTreeStyle.ts      depth colors and widths, draws split lines
+  settings/kdSettings.ts     k-d defaults and leaf capacity validation
+  trees/kdtree.ts            k-d tree build, split segments and summary
 ```

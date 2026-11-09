@@ -194,3 +194,129 @@
 .image-canvas.is-over-point {
   cursor: pointer;
 }
+
+.sidebar fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.sidebar .field {
+  margin-bottom: 16px;
+}
+
+.segmented {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.segmented label {
+  flex: 1;
+  position: relative;
+}
+
+.segmented input {
+  position: absolute;
+  opacity: 0;
+  inset: 0;
+  margin: 0;
+  cursor: pointer;
+}
+
+.segmented span {
+  display: block;
+  padding: 6px 8px;
+  font-size: 0.875rem;
+  text-align: center;
+  color: var(--text-muted);
+  border-radius: 4px;
+}
+
+.segmented input:checked + span {
+  color: var(--text);
+  font-weight: 500;
+  background: var(--surface);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.12);
+}
+
+.segmented input:focus-visible + span {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.field > label,
+.field > legend {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 0.875rem;
+}
+
+.text-input {
+  width: 100%;
+  padding: 7px 10px;
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.text-input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.text-input[aria-invalid='true'] {
+  border-color: var(--error);
+}
+
+.field .error {
+  margin-top: 6px;
+}
+
+.kd-summary {
+  margin-bottom: 8px;
+}
+
+.kd-summary dd {
+  white-space: normal;
+}
+
+.subheading {
+  margin: 16px 0 8px;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.kd-legend {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.875rem;
+}
+
+.kd-legend li {
+  display: grid;
+  grid-template-columns: 28px auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.kd-swatch {
+  display: block;
+  width: 28px;
+  border-radius: 1px;
+  /* Same white outline the lines get on the canvas; keeps dark swatches visible in dark mode. */
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 0.85);
+}
+
+.kd-legend-detail {
+  color: var(--text-muted);
+}

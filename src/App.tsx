@@ -1,12 +1,17 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import { ImageCanvas } from './components/ImageCanvas'
+import { KdTreePanel, type ViewMode } from './components/KdTreePanel'
 import { Sidebar } from './components/Sidebar'
 import { detectPoints, type DetectionResult } from './detection/detectPoints'
 import type { Point } from './geometry/imageSpace'
 import { loadImageFile, type LoadedImage } from './image/loadImage'
 import { readImagePixels } from './image/readPixels'
 import { togglePointAt } from './points/editPoints'
+import { DEFAULT_KD_SETTINGS, parseLeafCapacity } from './settings/kdSettings'
+import { buildKdTree, kdSplitSegments, summarizeKdTree, type Axis, type KdSplitSegment } from './trees/kdtree'
+
+const NO_SEGMENTS: readonly KdSplitSegment[] = []
 
 const DETECTION_FAILED = 'Could not scan this image for dots. You can still add points by clicking the image.'
 
@@ -28,6 +33,34 @@ export default function App() {
   /** The working list of points, in image pixel coordinates. Starts as the detected points. */
   const [points, setPoints] = useState<Point[]>([])
   const latestRequest = useRef(0)
+
+  const [viewMode, setViewMode] = useState<ViewMode>('points')
+  const [capacityInput, setCapacityInput] = useState(String(DEFAULT_KD_SETTINGS.leafCapacity))
+  /** Last valid capacity; an invalid entry keeps drawing the previous tree. */
+  const [leafCapacity, setLeafCapacity] = useState(DEFAULT_KD_SETTINGS.leafCapacity)
+  const [startAxis, setStartAxis] = useState<Axis>(DEFAULT_KD_SETTINGS.startAxis)
+  const capacityParse = parseLeafCapacity(capacityInput)
+
+  // Rebuilt whenever the points, settings or image change, so the canvas redraws on its own.
+  const kdTree = useMemo(
+    () =>
+      viewMode === 'kd' && image
+        ? buildKdTree(points, {
+            leafCapacity,
+            startAxis,
+            bounds: { minX: 0, minY: 0, maxX: image.width, maxY: image.height },
+          })
+        : null,
+    [viewMode, image, points, leafCapacity, startAxis],
+  )
+  const kdSegments = useMemo(() => (kdTree ? kdSplitSegments(kdTree) : NO_SEGMENTS), [kdTree])
+  const kdSummary = useMemo(() => (kdTree ? summarizeKdTree(kdTree) : null), [kdTree])
+
+  function handleCapacityInput(value: string) {
+    setCapacityInput(value)
+    const parsed = parseLeafCapacity(value)
+    if (parsed.ok) setLeafCapacity(parsed.value)
+  }
 
   // Free the decoded pixels when an image is replaced or the app unmounts.
   useEffect(() => () => image?.bitmap.close(), [image])
@@ -73,11 +106,25 @@ export default function App() {
         points={points}
         detection={detection}
         onResetPoints={() => setPoints(detection?.points ?? [])}
-      />
+      >
+        <KdTreePanel
+          mode={viewMode}
+          onModeChange={setViewMode}
+          capacityInput={capacityInput}
+          capacityError={capacityParse.ok ? null : capacityParse.message}
+          leafCapacity={leafCapacity}
+          onCapacityInputChange={handleCapacityInput}
+          startAxis={startAxis}
+          onStartAxisChange={setStartAxis}
+          summary={kdSummary}
+        />
+      </Sidebar>
       <main className="main">
         <ImageCanvas
           image={image}
           points={points}
+          kdSegments={kdSegments}
+          overlayLabel={kdSummary ? `k-d tree with ${kdSummary.leafCount} leaves` : undefined}
           onPointerMove={setPointer}
           onScaleChange={setScale}
           onImageClick={(point, hitRadius) => setPoints((current) => togglePointAt(current, point, hitRadius))}

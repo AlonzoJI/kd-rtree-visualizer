@@ -141,3 +141,64 @@ export function kdLeaves(node: KdNode): KdLeaf[] {
 export function kdInternalNodes(node: KdNode): KdInternalNode[] {
   return node.kind === 'leaf' ? [] : [node, ...kdInternalNodes(node.lower), ...kdInternalNodes(node.upper)]
 }
+
+/** One split line, clipped to the region of the node that made it. */
+export interface KdSplitSegment {
+  depth: number
+  axis: Axis
+  x1: number
+  y1: number
+  x2: number
+  y2: number
+}
+
+/**
+ * Every split line, deepest first, so that drawing them in order leaves the
+ * top-level splits on top. Ties keep parent-before-child tree order.
+ */
+export function kdSplitSegments(tree: KdNode): KdSplitSegment[] {
+  const segments = kdInternalNodes(tree).map(({ axis, split, depth, region }) =>
+    axis === 'x'
+      ? { depth, axis, x1: split, y1: region.minY, x2: split, y2: region.maxY }
+      : { depth, axis, x1: region.minX, y1: split, x2: region.maxX, y2: split },
+  )
+  return segments.sort((a, b) => b.depth - a.depth)
+}
+
+export interface KdLevelSummary {
+  depth: number
+  /** Axes used at this depth. Usually one; two when duplicates forced a fallback. */
+  axes: Axis[]
+  splits: number
+}
+
+export interface KdTreeSummary {
+  /** Depth of the deepest leaf; 0 when the root is a leaf. */
+  depth: number
+  leafCount: number
+  minLeafSize: number
+  maxLeafSize: number
+  meanLeafSize: number
+  /** One entry per level that has at least one split, from the root down. */
+  levels: KdLevelSummary[]
+}
+
+export function summarizeKdTree(tree: KdNode): KdTreeSummary {
+  const leaves = kdLeaves(tree)
+  const sizes = leaves.map((leaf) => leaf.points.length)
+  const levels: KdLevelSummary[] = []
+  for (const node of kdInternalNodes(tree)) {
+    const level = (levels[node.depth] ??= { depth: node.depth, axes: [], splits: 0 })
+    level.splits++
+    if (!level.axes.includes(node.axis)) level.axes.push(node.axis)
+  }
+  for (const level of levels) level.axes.sort()
+  return {
+    depth: Math.max(...leaves.map((leaf) => leaf.depth)),
+    leafCount: leaves.length,
+    minLeafSize: Math.min(...sizes),
+    maxLeafSize: Math.max(...sizes),
+    meanLeafSize: sizes.reduce((sum, size) => sum + size, 0) / leaves.length,
+    levels,
+  }
+}
